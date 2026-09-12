@@ -1179,14 +1179,38 @@ document.addEventListener('DOMContentLoaded', function(){
       }catch(e){}
     }
 
+        function loadJSONP(url,cb){
+      var name='__phcb'+Date.now();
+      window[name]=function(w){ cb(w);
+        var s=document.getElementById(name); if(s)s.remove();
+        try{delete window[name];}catch(e){window[name]=undefined;} };
+      var s=document.createElement('script');
+      s.id=name;
+      s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+name;
+      s.onerror=function(){ cb(null); var t=document.getElementById(name); if(t)t.remove(); };
+      document.body.appendChild(s);
+    }
+    function verifyWrap(w){
+      if(!w||typeof w.d!=='string')return Promise.resolve(null);
+      if(!w.s)return Promise.resolve(SIGN_KEY?null:w.d);
+      if(!SIGN_KEY||!(window.crypto&&crypto.subtle))return Promise.resolve(null);
+      var enc=new TextEncoder();
+      return crypto.subtle.importKey('raw',enc.encode(SIGN_KEY),{name:'HMAC',hash:'SHA-256'},false,['sign'])
+        .then(function(k){return crypto.subtle.sign('HMAC',k,enc.encode(w.d));})
+        .then(function(sig){
+          var u=new Uint8Array(sig),hex='';
+          for(var i=0;i<u.length;i++)hex+=('0'+u[i].toString(16)).slice(-2);
+          return hex===w.s?w.d:null;
+        }).catch(function(){return null;});
+    }
     if(SHEET_URL){
-      fetch(SHEET_URL).then(function(r){return r.text();})
-        .then(verifySigned)
-        .then(function(dstr){
+      loadJSONP(SHEET_URL,function(w){
+        verifyWrap(w).then(function(dstr){
           if(!dstr){ console.warn('Pista House: data signature verification failed — built-in defaults are shown.'); return; }
           var data; try{data=JSON.parse(dstr);}catch(e){return;}
           applyData(data);
-        }).catch(function(){});
+        });
+      });
     }
 
   }catch(err){
